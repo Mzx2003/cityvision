@@ -74,6 +74,15 @@ npm run dev
 
 Frontend runs on: `http://localhost:5173`
 
+The frontend dev server is configured with:
+- host exposure for LAN access
+- `/api` proxy to backend `http://localhost:4000`
+
+So the same app works from:
+- your local browser: `http://localhost:5173`
+- phone on same Wi-Fi: `http://<your-computer-ip>:5173`
+- Cursor forwarded port URL for `5173`
+
 ---
 
 ## Demo Features
