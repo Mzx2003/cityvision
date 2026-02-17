@@ -58,7 +58,24 @@ cityvision-full-stack-demo/
 npm install
 ```
 
-### 2) Start backend (Terminal 1, from repo root)
+### Option A: Single URL mode (backend + frontend on one URL)
+
+Build frontend once, then run backend server:
+
+```bash
+npm run start:single
+```
+
+Open:
+
+- `http://localhost:4000`
+- iPhone on same Wi-Fi: `http://<your-computer-ip>:4000`
+
+In this mode, Express serves the built React app and all APIs from the same origin.
+
+### Option B: Development mode (separate dev server + API)
+
+#### 2) Start backend (Terminal 1, from repo root)
 
 ```bash
 npm run start
@@ -66,7 +83,7 @@ npm run start
 
 Backend runs on: `http://localhost:4000`
 
-### 3) Start frontend (Terminal 2, from repo root)
+#### 3) Start frontend (Terminal 2, from repo root)
 
 ```bash
 npm run dev

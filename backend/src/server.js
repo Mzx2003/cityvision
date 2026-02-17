@@ -1,9 +1,16 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.resolve(__dirname, "../../frontend/dist");
+const hasFrontendBuild = fs.existsSync(frontendDistPath);
 
 app.use(cors());
 app.use(express.json());
@@ -145,6 +152,21 @@ app.put("/api/settings", requireAuth, (req, res) => {
 
   res.json(settings);
 });
+
+if (hasFrontendBuild) {
+  app.use(express.static(frontendDistPath));
+
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    return res.sendFile(path.join(frontendDistPath, "index.html"));
+  });
+} else {
+  app.get("/", (_req, res) => {
+    res.status(503).send("Frontend build not found. Run `npm run build` from the project root.");
+  });
+}
 
 app.listen(PORT, () => {
   // eslint-disable-next-line no-console
