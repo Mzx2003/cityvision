@@ -45,3 +45,7 @@ npm start
 ```
 
 When a frontend build exists, the backend serves `frontend/dist`.
+
+## Demo Video Source
+
+- Sample highway clip: Mixkit free stock video ("Traffic in the highway")
