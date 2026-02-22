@@ -23,6 +23,15 @@ Full-stack demo website for a graduation project.
   - `GET /api/violations`
   - `POST /api/violations`
 
+## Security Aspects
+
+- `helmet` headers enabled (CSP, clickjacking protection, MIME sniffing protection)
+- CORS allowlist (configurable with `ALLOWED_ORIGINS`)
+- API rate limiting to reduce abuse and spam
+- Strict JSON body size limit (`16kb`) and malformed JSON handling
+- Strong server-side payload validation for `POST /api/violations`
+- In-memory log cap (`MAX_VIOLATIONS = 500`) to avoid unbounded memory growth
+
 ## Setup
 
 ```bash
@@ -45,6 +54,17 @@ npm start
 ```
 
 When a frontend build exists, the backend serves `frontend/dist`.
+
+## Optional Security Configuration
+
+Set environment variables before starting the backend:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:4000,http://127.0.0.1:4000
+API_RATE_LIMIT_WINDOW_MS=60000
+API_RATE_LIMIT_MAX=120
+API_WRITE_LIMIT_MAX=30
+```
 
 ## Demo Video Source
 
