@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
+import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 const NAV_ITEMS = [
   { path: "/", label: "Home" },
@@ -15,6 +16,9 @@ const VIOLATION_TYPES = [
   "Over Speed",
   "Illegal Parking"
 ];
+
+const AUTH_STORAGE_KEY = "cityvision-auth-session";
+const DEFAULT_RECAPTCHA_SITE_KEY = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
 
 function randomInRange(min, max) {
   return Math.random() * (max - min) + min;
@@ -36,6 +40,43 @@ function generateBoxes() {
 }
 
 function App() {
+  const [session, setSession] = useState(() => getStoredSession());
+
+  const handleLoginSuccess = (sessionPayload) => {
+    setStoredSession(sessionPayload);
+    setSession(sessionPayload);
+  };
+
+  const handleLogout = async () => {
+    const token = session?.token;
+    clearStoredSession();
+    setSession(null);
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: getAuthHeaders(token)
+      });
+    } catch {
+      // Ignore network errors on logout and keep user signed out locally.
+    }
+  };
+
+  if (!session) {
+    return (
+      <main className="auth-shell">
+        <Routes>
+          <Route path="/login" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -59,21 +100,141 @@ function App() {
         <header className="top-header">
           <div>
             <strong>CityVision Control Panel</strong>
-            <p>Real-time demo workspace</p>
+            <p>Signed in as {session.username}</p>
           </div>
-          <span className="status-pill">System Online</span>
+          <div className="header-actions">
+            <span className="status-pill">System Online</span>
+            <button className="btn btn-secondary" type="button" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
         </header>
 
         <main className="page-content">
           <Routes>
+            <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="/" element={<HomePage />} />
-            <Route path="/demo" element={<DemoPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route
+              path="/demo"
+              element={<DemoPage sessionToken={session.token} onUnauthorized={handleLogout} />}
+            />
+            <Route
+              path="/dashboard"
+              element={<DashboardPage sessionToken={session.token} onUnauthorized={handleLogout} />}
+            />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
       </div>
     </div>
+  );
+}
+
+function LoginPage({ onLoginSuccess }) {
+  const recaptchaRef = useRef(null);
+  const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || DEFAULT_RECAPTCHA_SITE_KEY;
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("CityVision@123");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setErrorMessage("");
+
+    if (!username || !password) {
+      setErrorMessage("Username and password are required.");
+      return;
+    }
+
+    if (!captchaToken) {
+      setErrorMessage("Please verify CAPTCHA before logging in.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          captchaToken
+        })
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setErrorMessage(payload.message ?? "Login failed.");
+        setCaptchaToken("");
+        recaptchaRef.current?.reset();
+        return;
+      }
+
+      onLoginSuccess({
+        token: payload.token,
+        username: payload.username,
+        expiresAt: payload.expiresAt
+      });
+    } catch {
+      setErrorMessage("Unable to reach server. Please try again.");
+      recaptchaRef.current?.reset();
+      setCaptchaToken("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="login-card">
+      <h1>CityVision Secure Login</h1>
+      <p>Complete CAPTCHA verification to prevent automated login attempts.</p>
+
+      <form className="login-form" onSubmit={handleSubmit}>
+        <label>
+          Username
+          <input
+            type="text"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoComplete="username"
+          />
+        </label>
+
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+
+        <div className="captcha-box">
+          <ReCAPTCHA
+            ref={recaptchaRef}
+            sitekey={recaptchaSiteKey}
+            onChange={(token) => setCaptchaToken(token ?? "")}
+            onExpired={() => setCaptchaToken("")}
+          />
+        </div>
+
+        {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+
+        <button className="btn btn-primary" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Verifying..." : "Login"}
+        </button>
+      </form>
+
+      <p className="hint-text">
+        Demo account: <code>admin</code> / <code>CityVision@123</code>
+      </p>
+    </section>
   );
 }
 
@@ -134,14 +295,22 @@ function HomePage() {
   );
 }
 
-function DemoPage() {
+function DemoPage({ sessionToken, onUnauthorized }) {
   const [boxes, setBoxes] = useState([]);
   const [violations, setViolations] = useState([]);
 
   useEffect(() => {
     const loadViolations = async () => {
       try {
-        const response = await fetch("/api/violations");
+        const response = await fetch("/api/violations", {
+          headers: getAuthHeaders(sessionToken)
+        });
+
+        if (response.status === 401) {
+          onUnauthorized();
+          return;
+        }
+
         if (!response.ok) {
           return;
         }
@@ -154,7 +323,7 @@ function DemoPage() {
     };
 
     void loadViolations();
-  }, []);
+  }, [onUnauthorized, sessionToken]);
 
   useEffect(() => {
     let timerId;
@@ -175,7 +344,7 @@ function DemoPage() {
         };
 
         setViolations((previous) => [violation, ...previous]);
-        void postViolation(violation);
+        void postViolation(violation, sessionToken, onUnauthorized);
       }
 
       timerId = setTimeout(runDetectionLoop, randomInRange(1000, 2000));
@@ -187,7 +356,7 @@ function DemoPage() {
       mounted = false;
       clearTimeout(timerId);
     };
-  }, []);
+  }, [onUnauthorized, sessionToken]);
 
   return (
     <section className="stack">
@@ -249,40 +418,66 @@ function DemoPage() {
   );
 }
 
-async function postViolation(violation) {
+async function postViolation(violation, sessionToken, onUnauthorized) {
   try {
-    await fetch("/api/violations", {
+    const response = await fetch("/api/violations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        ...getAuthHeaders(sessionToken),
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify(violation)
     });
+
+    if (response.status === 401) {
+      onUnauthorized();
+    }
   } catch {
     // Network issues are tolerated in demo mode.
   }
 }
 
-function DashboardPage() {
+function DashboardPage({ sessionToken, onUnauthorized }) {
   const [violations, setViolations] = useState([]);
+  const [failedLogins, setFailedLogins] = useState([]);
   const [apiHealthy, setApiHealthy] = useState(false);
 
   useEffect(() => {
     let intervalId;
+    let active = true;
 
     const syncData = async () => {
       try {
-        const [healthResponse, violationsResponse] = await Promise.all([
+        const [healthResponse, violationsResponse, failedLoginsResponse] = await Promise.all([
           fetch("/api/health"),
-          fetch("/api/violations")
+          fetch("/api/violations", { headers: getAuthHeaders(sessionToken) }),
+          fetch("/api/security/failed-logins", { headers: getAuthHeaders(sessionToken) })
         ]);
+
+        if (violationsResponse.status === 401 || failedLoginsResponse.status === 401) {
+          onUnauthorized();
+          return;
+        }
+
+        if (!active) {
+          return;
+        }
 
         setApiHealthy(healthResponse.ok);
 
         if (violationsResponse.ok) {
-          const data = await violationsResponse.json();
-          setViolations(Array.isArray(data) ? data : []);
+          const violationData = await violationsResponse.json();
+          setViolations(Array.isArray(violationData) ? violationData : []);
+        }
+
+        if (failedLoginsResponse.ok) {
+          const failedLoginData = await failedLoginsResponse.json();
+          setFailedLogins(Array.isArray(failedLoginData) ? failedLoginData : []);
         }
       } catch {
-        setApiHealthy(false);
+        if (active) {
+          setApiHealthy(false);
+        }
       }
     };
 
@@ -291,8 +486,11 @@ function DashboardPage() {
       void syncData();
     }, 4000);
 
-    return () => clearInterval(intervalId);
-  }, []);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [onUnauthorized, sessionToken]);
 
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
@@ -356,6 +554,37 @@ function DashboardPage() {
           ))}
         </div>
       </div>
+
+      <div className="card">
+        <h3>Security Monitoring</h3>
+        <p>Failed login attempts logged by backend: {failedLogins.length}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Reason</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {failedLogins.length === 0 ? (
+              <tr>
+                <td colSpan="4">No failed login attempts recorded.</td>
+              </tr>
+            ) : (
+              failedLogins.slice(0, 8).map((item, index) => (
+                <tr key={`${item.timestamp}-${index}`}>
+                  <td>{new Date(item.timestamp).toLocaleString()}</td>
+                  <td>{item.username}</td>
+                  <td>{item.reason}</td>
+                  <td>{item.clientIp}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -414,6 +643,52 @@ function SettingsPage() {
       </div>
     </section>
   );
+}
+
+function getAuthHeaders(token) {
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`
+  };
+}
+
+function getStoredSession() {
+  try {
+    const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    if (
+      !parsedValue ||
+      typeof parsedValue !== "object" ||
+      typeof parsedValue.token !== "string" ||
+      typeof parsedValue.username !== "string" ||
+      typeof parsedValue.expiresAt !== "string"
+    ) {
+      return null;
+    }
+
+    if (Date.parse(parsedValue.expiresAt) <= Date.now()) {
+      return null;
+    }
+
+    return parsedValue;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredSession(session) {
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearStoredSession() {
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
 export default App;
